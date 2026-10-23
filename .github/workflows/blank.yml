@@ -1,0 +1,84 @@
+name: RDP
+# rdp by yamzz modified for Kali Linux
+
+on:
+  workflow_dispatch:
+
+jobs:
+  secure-rdp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3600
+
+    steps:
+      - name: Configure Kali Linux Container & XRDP
+        run: |
+          # Jalankan kontena Kali Linux
+          docker run -d --name kali --net=host --shm-size=1g kalilinux/kali-rolling sleep infinity
+          
+          # Pasang XFCE Desktop & XRDP dalam Kali Linux
+          docker exec -i kali bash -c "
+            export DEBIAN_FRONTEND=noninteractive
+            export USER=root
+            apt-get update && apt-get install -y kali-desktop-xfce xrdp dbus-x11 net-tools
+            echo 'xfce4-session' > /root/.xsession
+            service xrdp start
+          "
+
+      - name: Create RDP User with Secure Password
+        run: |
+          $username = "YamzzOfficial"
+          $password = "YamzzOffical@123"
+          
+          # Tetapkan kata laluan untuk root dan pengguna YamzzOfficial dalam Kali Linux
+          docker exec -i kali bash -c "echo 'root:$password' | chpasswd"
+          docker exec -i kali bash -c "useradd -m -s /bin/bash $username || true"
+          docker exec -i kali bash -c "echo '$username:$password' | chpasswd"
+          
+          echo "RDP_CREDS=User: $username | Password: $password" >> $env:GITHUB_ENV
+
+      - name: Install Tailscale
+        run: |
+          curl -fsSL https://tailscale.com/install.sh | sh
+
+      - name: Establish Tailscale Connection
+        run: |
+          & "tailscale" up --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} --hostname=gh-runner-$env:GITHUB_RUN_ID
+          
+          $tsIP = $null
+          $retries = 0
+          while (-not $tsIP -and $retries -lt 10) {
+            $tsIP = & "tailscale" ip -4
+            Start-Sleep -Seconds 5
+            $retries++
+          }
+          
+          if (-not $tsIP) {
+            exit 1
+          }
+          
+          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
+
+      - name: Verify RDP Accessibility
+        run: |
+          Write-Host "Tailscale IP: $env:TAILSCALE_IP"
+          
+          $testResult = Test-NetConnection -ComputerName "127.0.0.1" -Port 3389
+          if (-not $testResult.TcpTestSucceeded) {
+            exit 1
+          }
+          
+          Write-Host "TCP connectivity successful!"
+
+      - name: Maintain Connection
+        run: |
+          Write-Host "`n=== RDP ACCESS ==="
+          Write-Host "Address: $env:TAILSCALE_IP:3389"
+          Write-Host "Username: YamzzOfficial"
+          Write-Host "Password: YamzzOffical@123"
+          Write-Host "==================`n"
+          
+          while ($true) {
+            Write-Host "[$(Get-Date)] RDP Active"
+            Start-Sleep -Seconds 300
+          }
+          
